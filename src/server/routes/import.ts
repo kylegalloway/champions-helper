@@ -86,7 +86,7 @@ importRouter.post('/scrape', async (c) => {
 
     try {
       await send('progress', `Fetching tournament page for "${slug}"...`);
-      const results = await fetchTournamentTeams(slug);
+      const results = await fetchTournamentTeams(slug, regulation);
 
       if (results.length === 0) {
         await send('done', 'No teams found on that tournament page.', { count: 0 });
@@ -96,39 +96,66 @@ importRouter.post('/scrape', async (c) => {
       await send('progress', `Found ${results.length} teams — saving...`);
 
       let saved = 0;
-      let skipped = 0;
+      const skipReasons = { empty: 0, duplicate: 0, error: 0 };
 
       for (let i = 0; i < results.length; i++) {
         const parseResult = results[i];
-        if (parseResult.slots.length === 0) { skipped++; continue; }
+        const teamLabel = parseResult.playerName ? `Team ${i + 1} (${parseResult.playerName})` : `Team ${i + 1}`;
+
+        if (parseResult.slots.length === 0) {
+          await send('progress', `${teamLabel} skipped: no Pokémon parsed`);
+          skipReasons.empty++;
+          continue;
+        }
 
         try {
           const hash = computeContentHash(parseResult.slots);
-          const duplicate = await findDuplicateTeam(hash);
-          if (duplicate) { skipped++; continue; }
+          const duplicate = await findDuplicateTeam(hash, tournamentUrl);
+          if (duplicate) {
+            await send('progress', `${teamLabel} skipped: duplicate of team #${duplicate.id}${duplicate.regulationName ? ` (${duplicate.regulationName})` : ''}`);
+            skipReasons.duplicate++;
+            continue;
+          }
+
+          const playerPart = parseResult.playerName
+            ? `${parseResult.playerName}${parseResult.playerRecord ? ` [${parseResult.playerRecord}]` : ''}`
+            : `Team ${i + 1}`;
+          const teamName = `${slug} — ${playerPart}`;
 
           await saveMetaTeam(parseResult.slots, regulation, 'pikalytics', {
-            name: `${slug} Team ${i + 1}`,
+            name: teamName,
             sourceUrl: tournamentUrl,
             isPartial: parseResult.isPartial,
             rawJson: JSON.stringify(parseResult.slots),
+            playerName: parseResult.playerName,
+            playerRecord: parseResult.playerRecord,
           });
           saved++;
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
-          await send('progress', `Skipped team ${i + 1}: ${msg}`);
-          skipped++;
+          await send('progress', `${teamLabel} skipped: ${msg}`);
+          skipReasons.error++;
         }
       }
+
+      const skipped = skipReasons.empty + skipReasons.duplicate + skipReasons.error;
+      const skipSummary = [
+        skipReasons.duplicate > 0 ? `${skipReasons.duplicate} duplicate` : '',
+        skipReasons.empty > 0 ? `${skipReasons.empty} empty` : '',
+        skipReasons.error > 0 ? `${skipReasons.error} error` : '',
+      ].filter(Boolean).join(', ');
 
       await db.insert(importRuns).values({
         source: 'pikalytics-tournament',
         url: tournamentUrl,
         status: 'success',
-        message: `Saved ${saved} teams (${skipped} skipped/duplicate) from ${slug}`,
+        message: `Saved ${saved} teams (${skipped} skipped) from ${slug}`,
       });
 
-      await send('done', `Done. ${saved} teams saved, ${skipped} skipped.`, { count: saved });
+      const doneMsg = skipped > 0
+        ? `Done. ${saved} saved, ${skipped} skipped (${skipSummary}).`
+        : `Done. ${saved} teams saved.`;
+      await send('done', doneMsg, { count: saved });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       await send('error', message);

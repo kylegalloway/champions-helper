@@ -13,4 +13,7 @@ export default {
     },
   },
   plugins: [],
+  // pixelated utility for crisp sprite rendering
+  safelist: ['pixelated'],
+  plugins: [],
 } satisfies Config;

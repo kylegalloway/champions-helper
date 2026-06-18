@@ -46,6 +46,8 @@ export const metaTeams = sqliteTable('meta_teams', {
   isPartial: integer('is_partial').notNull().default(0),
   contentHash: text('content_hash'),
   rawJson: text('raw_json'),
+  playerName: text('player_name'),
+  playerRecord: text('player_record'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 

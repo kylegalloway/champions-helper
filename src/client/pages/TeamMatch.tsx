@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from '@tanstack/react-router';
-import type { MatchResult, MatchSlot, RosterEntry } from '../../shared/types';
+import type { MatchResult, MatchSlot, MatchTier, RosterEntry } from '../../shared/types';
+import { vpCost, isExactMatch } from '../../shared/vpCost';
 import { MatchBadge } from '../components/MatchBadge';
 import { BuildCard } from '../components/BuildCard';
 import { VPCostBreakdown } from '../components/VPCostBreakdown';
@@ -14,6 +15,12 @@ function MatchSlotRow({ matchSlot }: { matchSlot: MatchSlot }) {
 
   const displayEntry = selectedAlternate ?? matchSlot.matchedEntry;
 
+  const { activeTier, activeCost } = useMemo<{ activeTier: MatchTier; activeCost: number }>(() => {
+    if (!displayEntry) return { activeTier: 'UNOWNED', activeCost: 0 };
+    if (isExactMatch(displayEntry, matchSlot.targetSlot)) return { activeTier: 'EXACT', activeCost: 0 };
+    return { activeTier: 'ADJUSTABLE', activeCost: vpCost(displayEntry, matchSlot.targetSlot) };
+  }, [displayEntry, matchSlot.targetSlot]);
+
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 grid grid-cols-2 gap-4">
       {/* Target build (left) */}
@@ -25,11 +32,11 @@ function MatchSlotRow({ matchSlot }: { matchSlot: MatchSlot }) {
       {/* Match result (right) */}
       <div>
         <div className="flex items-center gap-2 mb-2">
-          <MatchBadge tier={matchSlot.tier} />
-          {matchSlot.tier === 'ADJUSTABLE' && (
-            <span className="text-xs text-amber-400">{matchSlot.vpCost} VP</span>
+          <MatchBadge tier={activeTier} />
+          {activeTier === 'ADJUSTABLE' && (
+            <span className="text-xs text-amber-400">{activeCost} VP</span>
           )}
-          {matchSlot.tier === 'UNOWNED' && matchSlot.targetSlot.speciesName && (
+          {activeTier === 'UNOWNED' && matchSlot.targetSlot.speciesName && (
             <span className="text-xs text-gray-500">Check Pokémon Home</span>
           )}
         </div>
@@ -37,11 +44,11 @@ function MatchSlotRow({ matchSlot }: { matchSlot: MatchSlot }) {
         {displayEntry ? (
           <>
             <BuildCard build={displayEntry} />
-            {matchSlot.tier === 'ADJUSTABLE' && displayEntry && (
+            {activeTier === 'ADJUSTABLE' && displayEntry && (
               <VPCostBreakdown
                 current={displayEntry}
                 target={matchSlot.targetSlot}
-                totalCost={matchSlot.vpCost}
+                totalCost={activeCost}
               />
             )}
             <AlternateSelector

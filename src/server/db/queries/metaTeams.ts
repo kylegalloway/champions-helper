@@ -1,5 +1,5 @@
 import { db } from '../client';
-import { metaTeams, metaTeamSlots, species, regulations } from '../schema';
+import { metaTeams, metaTeamSlots, species, regulations, regulationSpecies } from '../schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import type { MetaTeam, MetaTeamSlot, ParsedSlot } from '../../../shared/types';
 import { upsertSpecies } from './roster';
@@ -38,6 +38,8 @@ export async function getAllMetaTeams(regulationName?: string): Promise<MetaTeam
       regulationName: regulations.name,
       isPartial: metaTeams.isPartial,
       contentHash: metaTeams.contentHash,
+      playerName: metaTeams.playerName,
+      playerRecord: metaTeams.playerRecord,
       createdAt: metaTeams.createdAt,
     })
     .from(metaTeams)
@@ -72,25 +74,50 @@ export async function getAllMetaTeams(regulationName?: string): Promise<MetaTeam
           .innerJoin(species, eq(metaTeamSlots.speciesId, species.id))
           .where(inArray(metaTeamSlots.teamId, teamIds));
 
-  const slotsByTeam = new Map<number, MetaTeamSlot[]>();
+  const slotsByTeam = new Map<number, (MetaTeamSlot & { speciesId: number })[]>();
   for (const slot of allSlots) {
     const list = slotsByTeam.get(slot.teamId) ?? [];
-    list.push(mapSlotRow(slot));
+    list.push({ ...mapSlotRow(slot), speciesId: slot.speciesId });
     slotsByTeam.set(slot.teamId, list);
   }
 
-  return filtered.map((r) => ({
-    id: r.id,
-    name: r.name,
-    source: r.source,
-    sourceUrl: r.sourceUrl,
-    regulationId: r.regulationId,
-    regulationName: r.regulationName,
-    isPartial: r.isPartial === 1,
-    contentHash: r.contentHash,
-    createdAt: r.createdAt,
-    slots: (slotsByTeam.get(r.id) ?? []).sort((a, b) => a.slot - b.slot),
-  }));
+  // If filtering by regulation, load its allowed species set for legality badges
+  let allowedSpeciesSet: Set<number> | null = null;
+  if (regulationName) {
+    const regRow = await db.select().from(regulations).where(eq(regulations.name, regulationName)).get();
+    if (regRow) {
+      const regSpeciesRows = await db
+        .select({ speciesId: regulationSpecies.speciesId })
+        .from(regulationSpecies)
+        .where(eq(regulationSpecies.regulationId, regRow.id));
+      if (regSpeciesRows.length > 0) {
+        allowedSpeciesSet = new Set(regSpeciesRows.map((r) => r.speciesId));
+      }
+    }
+  }
+
+  return filtered.map((r) => {
+    const slots = (slotsByTeam.get(r.id) ?? []).sort((a, b) => a.slot - b.slot);
+    let isLegal: boolean | null = null;
+    if (allowedSpeciesSet) {
+      isLegal = slots.every((s) => allowedSpeciesSet!.has(s.speciesId));
+    }
+    return {
+      id: r.id,
+      name: r.name,
+      source: r.source,
+      sourceUrl: r.sourceUrl,
+      regulationId: r.regulationId,
+      regulationName: r.regulationName,
+      isPartial: r.isPartial === 1,
+      contentHash: r.contentHash,
+      playerName: r.playerName,
+      playerRecord: r.playerRecord,
+      isLegal,
+      createdAt: r.createdAt,
+      slots: slots.map(({ speciesId: _id, ...rest }) => rest) as MetaTeamSlot[],
+    };
+  });
 }
 
 export async function getMetaTeamWithSlots(teamId: number): Promise<MetaTeam | null> {
@@ -104,6 +131,8 @@ export async function getMetaTeamWithSlots(teamId: number): Promise<MetaTeam | n
       regulationName: regulations.name,
       isPartial: metaTeams.isPartial,
       contentHash: metaTeams.contentHash,
+      playerName: metaTeams.playerName,
+      playerRecord: metaTeams.playerRecord,
       createdAt: metaTeams.createdAt,
     })
     .from(metaTeams)
@@ -145,6 +174,8 @@ export async function getMetaTeamWithSlots(teamId: number): Promise<MetaTeam | n
     regulationName: team.regulationName,
     isPartial: team.isPartial === 1,
     contentHash: team.contentHash,
+    playerName: team.playerName,
+    playerRecord: team.playerRecord,
     createdAt: team.createdAt,
     slots: slotRows.map(mapSlotRow),
   };
@@ -162,13 +193,18 @@ export function computeContentHash(slots: ParsedSlot[]): string {
 }
 
 export async function findDuplicateTeam(
-  hash: string
+  hash: string,
+  sourceUrl?: string
 ): Promise<{ id: number; regulationName: string | null } | null> {
+  const condition = sourceUrl
+    ? and(eq(metaTeams.contentHash, hash), eq(metaTeams.sourceUrl, sourceUrl))
+    : eq(metaTeams.contentHash, hash);
+
   const existing = await db
     .select({ id: metaTeams.id, regulationName: regulations.name })
     .from(metaTeams)
     .leftJoin(regulations, eq(metaTeams.regulationId, regulations.id))
-    .where(eq(metaTeams.contentHash, hash))
+    .where(condition)
     .get();
 
   return existing ?? null;
@@ -178,7 +214,7 @@ export async function saveMetaTeam(
   slots: ParsedSlot[],
   regulationName: string,
   source: string,
-  opts: { name?: string; sourceUrl?: string; isPartial: boolean; rawJson?: string }
+  opts: { name?: string; sourceUrl?: string; isPartial: boolean; rawJson?: string; playerName?: string; playerRecord?: string }
 ): Promise<MetaTeam> {
   const hash = computeContentHash(slots);
 
@@ -195,6 +231,8 @@ export async function saveMetaTeam(
       isPartial: opts.isPartial ? 1 : 0,
       contentHash: hash,
       rawJson: opts.rawJson ?? null,
+      playerName: opts.playerName ?? null,
+      playerRecord: opts.playerRecord ?? null,
     })
     .returning();
 
@@ -221,6 +259,22 @@ export async function saveMetaTeam(
   return (await getMetaTeamWithSlots(team.id))!;
 }
 
+export async function deleteMetaTeam(teamId: number): Promise<boolean> {
+  const result = await db.delete(metaTeams).where(eq(metaTeams.id, teamId)).returning({ id: metaTeams.id });
+  return result.length > 0;
+}
+
+export async function deleteAllMetaTeams(regulationName?: string): Promise<number> {
+  if (regulationName) {
+    const regRow = await db.select().from(regulations).where(eq(regulations.name, regulationName)).get();
+    if (!regRow) return 0;
+    const result = await db.delete(metaTeams).where(eq(metaTeams.regulationId, regRow.id)).returning({ id: metaTeams.id });
+    return result.length;
+  }
+  const result = await db.delete(metaTeams).returning({ id: metaTeams.id });
+  return result.length;
+}
+
 export async function getAllRegulations(): Promise<import('../../../shared/types').Regulation[]> {
   const rows = await db.select().from(regulations);
   return rows.map((r) => ({
@@ -229,4 +283,63 @@ export async function getAllRegulations(): Promise<import('../../../shared/types
     validFrom: r.validFrom,
     validTo: r.validTo,
   }));
+}
+
+export async function seedRegulationSpecies(
+  regulationId: number,
+  speciesNames: string[]
+): Promise<number> {
+  let added = 0;
+  for (const name of speciesNames) {
+    const speciesId = await upsertSpecies(name);
+    const exists = await db
+      .select()
+      .from(regulationSpecies)
+      .where(and(
+        eq(regulationSpecies.regulationId, regulationId),
+        eq(regulationSpecies.speciesId, speciesId)
+      ))
+      .get();
+    if (!exists) {
+      await db.insert(regulationSpecies).values({ regulationId, speciesId });
+      added++;
+    }
+  }
+  return added;
+}
+
+export async function getRegulationSpeciesCount(regulationId: number): Promise<number> {
+  const rows = await db
+    .select()
+    .from(regulationSpecies)
+    .where(eq(regulationSpecies.regulationId, regulationId));
+  return rows.length;
+}
+
+export async function isTeamLegalForRegulation(
+  teamSpeciesIds: number[],
+  regulationId: number
+): Promise<boolean | null> {
+  const count = await getRegulationSpeciesCount(regulationId);
+  if (count === 0) return null;
+
+  const allowed = await db
+    .select({ speciesId: regulationSpecies.speciesId })
+    .from(regulationSpecies)
+    .where(eq(regulationSpecies.regulationId, regulationId));
+
+  const allowedSet = new Set(allowed.map((r) => r.speciesId));
+  return teamSpeciesIds.every((id) => allowedSet.has(id));
+}
+
+export async function createRegulation(
+  name: string,
+  validFrom?: string,
+  validTo?: string
+): Promise<import('../../../shared/types').Regulation> {
+  const [row] = await db
+    .insert(regulations)
+    .values({ name, validFrom: validFrom ?? null, validTo: validTo ?? null })
+    .returning();
+  return { id: row.id, name: row.name, validFrom: row.validFrom, validTo: row.validTo };
 }

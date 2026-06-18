@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { RosterEntry } from '../../shared/types';
+import { AutocompleteInput } from './AutocompleteInput';
+import { allSpeciesNames, allNatureNames, allMoveNames, allAbilityNames } from '../lib/dexData';
 
 interface Props {
   entry?: RosterEntry | null;
@@ -88,7 +90,13 @@ export function RosterEditModal({ entry, onClose }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-400 mb-1 block">Species</label>
-              <input value={form.speciesName} onChange={set('speciesName')} className={fieldClass} required />
+              <AutocompleteInput
+                value={form.speciesName}
+                onChange={(v) => setForm((f) => ({ ...f, speciesName: v }))}
+                suggestions={allSpeciesNames}
+                className={fieldClass}
+                required
+              />
             </div>
             <div>
               <label className="text-xs text-gray-400 mb-1 block">Nickname</label>
@@ -99,11 +107,23 @@ export function RosterEditModal({ entry, onClose }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-gray-400 mb-1 block">Ability</label>
-              <input value={form.ability} onChange={set('ability')} className={fieldClass} required />
+              <AutocompleteInput
+                value={form.ability}
+                onChange={(v) => setForm((f) => ({ ...f, ability: v }))}
+                suggestions={allAbilityNames}
+                className={fieldClass}
+                required
+              />
             </div>
             <div>
               <label className="text-xs text-gray-400 mb-1 block">Nature</label>
-              <input value={form.nature} onChange={set('nature')} className={fieldClass} required />
+              <AutocompleteInput
+                value={form.nature}
+                onChange={(v) => setForm((f) => ({ ...f, nature: v }))}
+                suggestions={allNatureNames}
+                className={fieldClass}
+                required
+              />
             </div>
           </div>
 
@@ -123,7 +143,12 @@ export function RosterEditModal({ entry, onClose }: Props) {
             {(['move1', 'move2', 'move3', 'move4'] as const).map((m, i) => (
               <div key={m}>
                 <label className="text-xs text-gray-400 mb-1 block">Move {i + 1}</label>
-                <input value={form[m]} onChange={set(m)} className={fieldClass} />
+                <AutocompleteInput
+                  value={form[m]}
+                  onChange={(v) => setForm((f) => ({ ...f, [m]: v }))}
+                  suggestions={allMoveNames}
+                  className={fieldClass}
+                />
               </div>
             ))}
           </div>

@@ -1,4 +1,4 @@
-import type { RosterEntry, MetaTeamSlot } from '../../shared/types';
+import type { RosterEntry, MetaTeamSlot } from './types';
 
 export function parseSP(spread: string): number[] {
   return spread.split('/').map(Number);

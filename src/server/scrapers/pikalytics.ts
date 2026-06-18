@@ -146,7 +146,22 @@ interface PikalyticsTournamentsData {
   teams?: PikalyticsTournamentTeam[];
 }
 
-export async function fetchTournamentTeams(slug: string): Promise<ParseResult[]> {
+const REGULATION_FORMAT_CODES: Record<string, string> = {
+  'M-A': 'battledataregmas3',
+  'M-B': 'battledataregmbs3',
+  'M-C': 'battledataregmcs3',
+  'M-D': 'battledataregmds3',
+  'M-E': 'battledataregmes3',
+  'M-F': 'battledataregmfs3',
+  'M-G': 'battledataregmgs3',
+  'M-H': 'battledataregmhs3',
+};
+
+function regulationToFormatCode(regulation: string): string {
+  return REGULATION_FORMAT_CODES[regulation] ?? REGULATION_FORMAT_CODES['M-B'];
+}
+
+export async function fetchTournamentTeams(slug: string, regulation = 'M-B'): Promise<ParseResult[]> {
   // Try both rk9 and limitless URL patterns
   const urls = [
     `${BASE}/tournaments/rk9/${slug}`,
@@ -183,7 +198,7 @@ export async function fetchTournamentTeams(slug: string): Promise<ParseResult[]>
   // Collect unique species names and fetch estimated ranked data in parallel
   const uniqueSpecies = [...new Set(rawTeams.flatMap((t) => (t.pokemon ?? []).map((p) => p.name)))];
   const rankedMap = new Map<string, RankedData>();
-  const formatCode = 'battledataregmbs3';
+  const formatCode = regulationToFormatCode(regulation);
 
   // Batch fetches with concurrency limit of 8
   for (let i = 0; i < uniqueSpecies.length; i += 8) {
@@ -202,7 +217,7 @@ export async function fetchTournamentTeams(slug: string): Promise<ParseResult[]>
   for (const team of rawTeams) {
     if (!team.pokemon || team.pokemon.length === 0) continue;
 
-    const slots = team.pokemon.map((p) => {
+    const slots = team.pokemon.map((p: PikalyticsTournamentPokemon) => {
       const moves = (p.moves ?? []).map((m) => m.name);
       while (moves.length < 4) moves.push('');
       const ranked = rankedMap.get(p.name);
@@ -226,7 +241,13 @@ export async function fetchTournamentTeams(slug: string): Promise<ParseResult[]>
       ? [{ message: 'Nature and SP spreads are estimated from ranked battle data' }]
       : [{ message: 'Nature and SP spread not available from Pikalytics for these species' }];
 
-    results.push({ slots, isPartial: slots.length < 6, warnings });
+    results.push({
+      slots,
+      isPartial: slots.length < 6,
+      warnings,
+      playerName: team.author ?? undefined,
+      playerRecord: team.record ?? undefined,
+    });
   }
 
   return results;

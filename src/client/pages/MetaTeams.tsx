@@ -1,8 +1,105 @@
 import { useState, useMemo, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { MetaTeam, Regulation, RosterEntry, ScrapeProgressEvent } from '../../shared/types';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
+import type { MetaTeam, MetaTeamSlot, Regulation, RosterEntry, ScrapeProgressEvent } from '../../shared/types';
+import { vpCost, isExactMatch } from '../../shared/vpCost';
 import { MetaTeamCard } from '../components/MetaTeamCard';
 import { ImportModal } from '../components/ImportModal';
+
+function computeTeamVpCost(slots: MetaTeamSlot[], rosterBySpecies: Map<string, RosterEntry[]>): number {
+  let total = 0;
+  for (const slot of slots) {
+    let owned = rosterBySpecies.get(slot.speciesName) ?? [];
+    if (owned.length === 0 && slot.speciesName.includes('-Mega')) {
+      owned = rosterBySpecies.get(slot.speciesName.replace(/-Mega.*$/, '')) ?? [];
+    }
+    if (owned.length === 0) continue;
+    let best = Infinity;
+    for (const entry of owned) {
+      if (isExactMatch(entry, slot)) { best = 0; break; }
+      const c = vpCost(entry, slot);
+      if (c < best) best = c;
+    }
+    total += best === Infinity ? 0 : best;
+  }
+  return total;
+}
+
+function CoreSpeciesBar({
+  core,
+  allSpecies,
+  onChange,
+}: {
+  core: string[];
+  allSpecies: string[];
+  onChange: (core: string[]) => void;
+}) {
+  const [input, setInput] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const suggestions = useMemo(() => {
+    if (!input.trim()) return [];
+    const q = input.toLowerCase();
+    const active = new Set(core.map((s) => s.toLowerCase()));
+    return allSpecies
+      .filter((s) => s.toLowerCase().includes(q) && !active.has(s.toLowerCase()))
+      .slice(0, 8);
+  }, [input, allSpecies, core]);
+
+  function add(species: string) {
+    if (core.length >= 4) return;
+    onChange([...core, species]);
+    setInput('');
+    setShowSuggestions(false);
+    inputRef.current?.focus();
+  }
+
+  function handleKey(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && suggestions.length > 0) add(suggestions[0]);
+    else if (e.key === 'Escape') setShowSuggestions(false);
+  }
+
+  return (
+    <div className="relative flex flex-wrap items-center gap-2 bg-gray-800/60 border border-amber-900/50 rounded px-3 py-1.5 min-h-[36px]">
+      <span className="text-xs text-amber-600 font-medium shrink-0">Core:</span>
+      {core.map((s) => (
+        <span
+          key={s}
+          className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border bg-amber-900/40 border-amber-700 text-amber-300"
+        >
+          {s}
+          <button onClick={() => onChange(core.filter((x) => x !== s))} className="hover:opacity-70 ml-0.5">×</button>
+        </span>
+      ))}
+      {core.length < 4 && (
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={(e) => { setInput(e.target.value); setShowSuggestions(true); }}
+          onKeyDown={handleKey}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+          placeholder={core.length === 0 ? 'Add up to 4 Pokémon to build around…' : ''}
+          className="flex-1 min-w-32 bg-transparent text-sm text-white placeholder-gray-500 focus:outline-none"
+        />
+      )}
+      {showSuggestions && suggestions.length > 0 && (
+        <div className="absolute top-full left-0 mt-1 w-full bg-gray-900 border border-gray-700 rounded shadow-lg z-20">
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              onMouseDown={() => add(s)}
+              className="w-full text-left px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700 transition-colors"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface SpeciesFilter {
   species: string;
@@ -108,6 +205,9 @@ export function MetaTeamsPage() {
   const [isScraping, setIsScraping] = useState(false);
   const [speciesFilters, setSpeciesFilters] = useState<SpeciesFilter[]>([]);
   const [ownedOnly, setOwnedOnly] = useState(false);
+  const [sortByVp, setSortByVp] = useState(false);
+  const [uniqueOnly, setUniqueOnly] = useState(false);
+  const [coreSpecies, setCoreSpecies] = useState<string[]>([]);
   const qc = useQueryClient();
 
   const { data: regulations } = useQuery<Regulation[]>({
@@ -128,25 +228,64 @@ export function MetaTeamsPage() {
   const { data: roster } = useQuery<RosterEntry[]>({
     queryKey: ['roster'],
     queryFn: () => fetch('/api/roster').then((r) => r.json()),
-    enabled: ownedOnly,
+    enabled: ownedOnly || coreSpecies.length > 0,
   });
 
-  const ownedSpecies = useMemo(() => {
-    if (!roster) return null;
+  const selectedRegulationObj = regulations?.find((r) => r.name === selectedRegulation);
+
+  const deleteAllMutation = useMutation({
+    mutationFn: async () => {
+      const url = selectedRegulation
+        ? `/api/meta-teams?regulation=${encodeURIComponent(selectedRegulation)}`
+        : '/api/meta-teams';
+      const res = await fetch(url, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Delete failed');
+      return json as { deleted: number };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['meta-teams'] });
+      
+      alert(`Deleted ${data.deleted} team${data.deleted === 1 ? '' : 's'}.`);
+    },
+    onError: (err: Error) => alert(`Delete failed: ${err.message}`),
+  });
+
+  const seedSpeciesMutation = useMutation({
+    mutationFn: async (regId: number) => {
+      const res = await fetch(`/api/meta-teams/regulations/${regId}/seed-species`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'Seed failed');
+      return json as { added: number; total: number };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['regulations'] });
+      qc.invalidateQueries({ queryKey: ['meta-teams'] });
+      alert(`Seeded ${data.added} new species (${data.total} total) from Serebii.`);
+    },
+    onError: (err: Error) => {
+      alert(`Seed failed: ${err.message}`);
+    },
+  });
+
+  const { rosterBySpecies, ownedSpecies } = useMemo(() => {
+    if (!roster) return { rosterBySpecies: new Map<string, RosterEntry[]>(), ownedSpecies: null };
+    const bySpecies = new Map<string, RosterEntry[]>();
     const names = new Set<string>();
     for (const e of roster) {
+      const list = bySpecies.get(e.speciesName) ?? [];
+      list.push(e);
+      bySpecies.set(e.speciesName, list);
       names.add(e.speciesName);
-      // Mega forms: owning the base form counts
       if (e.speciesName.includes('-Mega')) {
         names.add(e.speciesName.replace(/-Mega.*$/, ''));
       } else {
-        // Base form: also covers any mega of it
         names.add(`${e.speciesName}-Mega`);
         names.add(`${e.speciesName}-Mega-X`);
         names.add(`${e.speciesName}-Mega-Y`);
       }
     }
-    return names;
+    return { rosterBySpecies: bySpecies, ownedSpecies: names };
   }, [roster]);
 
   const allSpecies = useMemo(() => {
@@ -158,9 +297,13 @@ export function MetaTeamsPage() {
     return [...names].sort();
   }, [teams]);
 
-  const filteredTeams = useMemo(() => {
-    if (!teams) return teams;
-    return teams.filter((team) => {
+  const { filteredTeams, teamVpCosts } = useMemo(() => {
+    if (!teams) return { filteredTeams: undefined, teamVpCosts: new Map<number, number>() };
+
+    const costs = new Map<number, number>();
+    const canComputeVp = (ownedOnly || coreSpecies.length > 0) && roster && rosterBySpecies.size > 0;
+
+    const filtered = teams.filter((team) => {
       const teamSpecies = new Set((team.slots ?? []).map((s) => s.speciesName));
       if (speciesFilters.length > 0) {
         const passesSpecies = speciesFilters.every((f) =>
@@ -168,13 +311,42 @@ export function MetaTeamsPage() {
         );
         if (!passesSpecies) return false;
       }
+      if (coreSpecies.length > 0) {
+        if (!coreSpecies.every((s) => teamSpecies.has(s))) return false;
+      }
       if (ownedOnly && ownedSpecies) {
         const allOwned = [...teamSpecies].every((s) => ownedSpecies.has(s));
         if (!allOwned) return false;
       }
+      if (canComputeVp && team.slots) {
+        costs.set(team.id, computeTeamVpCost(team.slots, rosterBySpecies));
+      }
       return true;
     });
-  }, [teams, speciesFilters, ownedOnly, ownedSpecies]);
+
+    let sorted = sortByVp && costs.size > 0
+      ? [...filtered].sort((a, b) => (costs.get(a.id) ?? 0) - (costs.get(b.id) ?? 0))
+      : filtered;
+
+    if (uniqueOnly) {
+      const seen = new Set<string>();
+      sorted = sorted.filter((t) => {
+        if (!t.contentHash || seen.has(t.contentHash)) return false;
+        seen.add(t.contentHash);
+        return true;
+      });
+    }
+
+    return { filteredTeams: sorted, teamVpCosts: costs };
+  }, [teams, speciesFilters, coreSpecies, ownedOnly, ownedSpecies, sortByVp, uniqueOnly, roster, rosterBySpecies]);
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useWindowVirtualizer({
+    count: filteredTeams?.length ?? 0,
+    estimateSize: () => 130,
+    overscan: 5,
+    scrollMargin: listRef.current?.offsetTop ?? 0,
+  });
 
   async function startScrape() {
     if (!tournamentUrl.trim()) return;
@@ -227,16 +399,45 @@ export function MetaTeamsPage() {
 
         <select
           value={selectedRegulation}
-          onChange={(e) => setSelectedRegulation(e.target.value)}
+          onChange={(e) => { setSelectedRegulation(e.target.value); }}
           className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-gray-500"
         >
           <option value="">All Regulations</option>
           {regulations?.map((r) => (
             <option key={r.id} value={r.name}>
-              {r.name}
+              {r.name}{r.speciesCount ? ` (${r.speciesCount} species)` : ''}
             </option>
           ))}
         </select>
+
+        {selectedRegulationObj && (
+          <button
+            onClick={() => {
+              if (confirm(`Fetch legal species for ${selectedRegulationObj.name} from Serebii? This may take a moment.`)) {
+                seedSpeciesMutation.mutate(selectedRegulationObj.id);
+              }
+            }}
+            disabled={seedSpeciesMutation.isPending}
+            title="Fetch legal species list from Serebii to enable legality checking"
+            className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 border border-gray-700 rounded px-3 py-1.5 text-sm transition-colors"
+          >
+            {seedSpeciesMutation.isPending ? 'Seeding…' : `Seed Species`}
+          </button>
+        )}
+
+        <button
+          onClick={() => {
+            const scope = selectedRegulation ? `all "${selectedRegulation}" teams` : 'ALL teams';
+            const count = filteredTeams?.length ?? teams?.length ?? 0;
+            if (confirm(`Delete ${scope} (${count} total)? This cannot be undone.`)) {
+              deleteAllMutation.mutate();
+            }
+          }}
+          disabled={deleteAllMutation.isPending || (teams?.length ?? 0) === 0}
+          className="bg-red-950 hover:bg-red-900 disabled:opacity-40 text-red-400 border border-red-900 rounded px-3 py-1.5 text-sm transition-colors"
+        >
+          {deleteAllMutation.isPending ? 'Deleting…' : 'Delete all'}
+        </button>
 
         <button
           onClick={() => setShowScrapeModal(true)}
@@ -260,7 +461,18 @@ export function MetaTeamsPage() {
         </button>
 
         <button
-          onClick={() => setOwnedOnly((v) => !v)}
+          onClick={() => { setUniqueOnly((v) => !v); }}
+          className={`border rounded px-3 py-1.5 text-sm transition-colors ${
+            uniqueOnly
+              ? 'bg-blue-900 border-blue-700 text-blue-200 hover:bg-blue-800'
+              : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+          }`}
+        >
+          Unique teams
+        </button>
+
+        <button
+          onClick={() => { setOwnedOnly((v) => !v); }}
           className={`border rounded px-3 py-1.5 text-sm transition-colors ${
             ownedOnly
               ? 'bg-green-800 border-green-600 text-green-200 hover:bg-green-700'
@@ -269,21 +481,42 @@ export function MetaTeamsPage() {
         >
           Owned all 6
         </button>
+
+        {ownedOnly && (
+          <button
+            onClick={() => { setSortByVp((v) => !v); }}
+            className={`border rounded px-3 py-1.5 text-sm transition-colors ${
+              sortByVp
+                ? 'bg-amber-900 border-amber-700 text-amber-200 hover:bg-amber-800'
+                : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'
+            }`}
+          >
+            Sort by VP cost
+          </button>
+        )}
       </div>
 
-      <div className="mb-4">
+      <div className="space-y-2 mb-4">
+        <CoreSpeciesBar
+          core={coreSpecies}
+          allSpecies={allSpecies}
+          onChange={setCoreSpecies}
+        />
         <PokemonFilterBar
           filters={speciesFilters}
           allSpecies={allSpecies}
-          onChange={setSpeciesFilters}
+          onChange={(f) => { setSpeciesFilters(f); }}
         />
-        {speciesFilters.length > 0 && (
-          <div className="flex items-center justify-between mt-1.5 text-xs text-gray-500">
+        {(speciesFilters.length > 0 || coreSpecies.length > 0) && (
+          <div className="flex items-center justify-between text-xs text-gray-500">
             <span>
               {filteredTeams?.length ?? 0} of {teams?.length ?? 0} teams match
             </span>
-            <button onClick={() => setSpeciesFilters([])} className="hover:text-gray-300 transition-colors">
-              Clear filters
+            <button
+              onClick={() => { setSpeciesFilters([]); setCoreSpecies([]); }}
+              className="hover:text-gray-300 transition-colors"
+            >
+              Clear all filters
             </button>
           </div>
         )}
@@ -309,10 +542,28 @@ export function MetaTeamsPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-3">
-        {filteredTeams?.map((team) => (
-          <MetaTeamCard key={team.id} team={team} />
-        ))}
+      <div
+        ref={listRef}
+        style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}
+      >
+        {virtualizer.getVirtualItems().map((vItem) => {
+          const team = filteredTeams![vItem.index];
+          return (
+            <div
+              key={vItem.key}
+              data-index={vItem.index}
+              ref={virtualizer.measureElement}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vItem.start - virtualizer.options.scrollMargin}px)` }}
+            >
+              <div className="pb-3">
+                <MetaTeamCard
+                  team={team}
+                  estimatedVpCost={teamVpCosts.has(team.id) ? teamVpCosts.get(team.id) : undefined}
+                />
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Import Tournament modal */}
@@ -344,7 +595,7 @@ export function MetaTeamsPage() {
                 <label className="text-xs text-gray-400 mb-1 block">Tag under regulation</label>
                 <select
                   value={selectedRegulation || 'M-B'}
-                  onChange={(e) => setSelectedRegulation(e.target.value)}
+                  onChange={(e) => { setSelectedRegulation(e.target.value); }}
                   className={fieldClass}
                   disabled={isScraping}
                 >

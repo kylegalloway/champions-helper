@@ -15,7 +15,7 @@ The in-game name given to a specific copy of a Pokemon. Nicknames (combined with
 The full configuration of a Roster Entry: four Moves, one Ability, one Nature, and a SP Spread. Changing any part of a Build costs VP.
 
 **Home Pokemon**
-A Roster Entry loaned into Pokemon Champions from the player's Pokemon Home account. Treated as owned for team-building purposes.
+A Roster Entry loaned into Pokemon Champions from the player's Pokemon Home account. Treated as owned for team-building purposes. Displayed with a HOME badge in the UI.
 
 **SP (Stat Points)**
 The EV replacement system in Pokemon Champions. Each Pokemon has a maximum of 66 SPs total, with at most 32 SPs assignable to any single stat. Stats are ordered: HP / Atk / Def / SpAtk / SpDef / Spd. Recorded as a slash-delimited string (e.g., `2/32/0/0/0/32`). 1 SP ≈ 8 traditional EVs.
@@ -33,14 +33,16 @@ The primary in-game currency. Earned through battles and missions; cannot be pur
 - Changing Ability: 500 VP
 - SP cost is delta-only: only SPs added above the current value are charged.
 
+The cost model lives in `src/shared/vpCost.ts` so it runs identically on both the server (match computation) and the client (live VP recalculation when selecting alternates; "Sort by VP cost" on the MetaTeams page).
+
 **Mega Evolution**
 A battle transformation available to certain Pokemon when holding their species-specific Mega Stone. Only one Pokemon per team may Mega Evolve per match, and it holds its Mega Stone for the entire match (no other item).
 
 **Regulation**
-A named ruleset (e.g., M-A, M-B) that defines which Pokemon species are legal in Ranked Battles, along with a validity date range. A team is legal in a Regulation if every Pokemon in the team appears in that Regulation's allowed roster.
+A named ruleset (e.g., M-A, M-B) that defines which Pokemon species are legal in Ranked Battles, along with a validity date range. A team is legal in a Regulation if every Pokemon in the team appears in that Regulation's allowed roster. Species lists are seeded from Serebii via `POST /api/meta-teams/regulations/:id/seed-species`. Legality is computed at query time — see ADR 0001.
 
 **Meta Team**
-A team of 6 Pokemon (each with a full Build) sourced from competitive data (Pikalytics tournament pages, pokepast.es, or manual entry). Tagged with its source and the Regulation it was imported under. Legality in other Regulations is computed dynamically. Note: Pokemon-Zone is Cloudflare-protected and not scrapeable.
+A team of 6 Pokemon (each with a full Build) sourced from competitive data (Pikalytics tournament pages, pokepast.es, or manual entry). Tagged with its source and the Regulation it was imported under, plus optional player name and record. Legality in other Regulations is computed dynamically. Note: Pokemon-Zone is Cloudflare-protected and not scrapeable.
 
 **Partial Team**
 A Meta Team with fewer than 6 Pokemon slots filled. Flagged as partial in the UI and in the DB.
@@ -52,25 +54,25 @@ How closely a Roster Entry matches a specific slot in a Meta Team:
 - **Unowned** — player does not have this species (or any copy of it). Flagged; player may have it in Pokemon Home.
 
 **Substitution** *(future)*
-A different species that fills a similar competitive role to a Meta Team slot. Not implemented in v1.
+A different species that fills a similar competitive role to a Meta Team slot. Not implemented.
 
 ## Reference Data
 
 **Species Data**
-Moves, abilities, natures, types, and species metadata are sourced from the `@pkmn/data` package (Showdown data, bundled as static JSON). This drives frontend autocomplete and validation without runtime scraping.
+Moves, abilities, natures, types, and species metadata are sourced from the `@pkmn/dex` package (Showdown data, bundled at build time). This drives frontend autocomplete on all four field types (species, ability, nature, moves) without runtime scraping.
 
-**Pokemon Images**
-Sprites and official artwork sourced from PokeAPI (`pokeapi.co`). Cached locally on first use. Type icons bundled as static assets.
+**Pokemon Sprites**
+Sprites are fetched from the Pokémon Showdown CDN (`play.pokemonshowdown.com/sprites/dex/{id}.png`), where `{id}` is the lowercase alphanumeric species name (e.g., `venusaurmega`, `charizardmegax`). This covers all VGC-legal forms including megas and regionals with no API calls. Displayed in RosterCard, BuildCard, and MetaTeamCard slot chips using the `PokemonSprite` component. The `species.pokeapi_url` column exists for future PokeAPI caching if higher-quality sprites are needed.
 
 **Pikalytics Integration**
 - Usage list: `GET /ai/pokedex/{formatCode}` — Markdown, top 50 Pokemon with links
 - Per-Pokemon builds: `GET /ai/pokedex/{formatCode}/{speciesName}` — Markdown with moves, abilities, items, SP spreads (already in SP values, no conversion needed)
-- Tournament teams: `GET /tournaments/rk9/{slug}` or `/tournaments/limitless/{slug}` — server-rendered HTML
-- Regulation M-B format code: `battledataregmbs3`
+- Tournament teams: `GET /tournaments/rk9/{slug}` or `/tournaments/limitless/{slug}` — server-rendered HTML containing `window.__TOURNAMENTS_DATA__` JSON with full team data including `author` and `record`
+- Regulation → format code mapping: `REGULATION_FORMAT_CODES` in `pikalytics.ts` (e.g., M-B → `battledataregmbs3`); falls back to M-B if regulation not in map
 - robots.txt: fully open, ClaudeBot explicitly allowed
 
 **Regulation Species Lists**
-Scraped once per regulation from `serebii.net/pokemonchampions/rankedbattle/regulation{name}.shtml`.
+Scraped once per regulation from `serebii.net/pokemonchampions/rankedbattle/regulation{name}.shtml` via the "Seed Species" button in the MetaTeams UI. Stored in `regulation_species`. Required for the LEGAL/ILLEGAL badge on MetaTeamCard.
 
 ## Battle Format
 

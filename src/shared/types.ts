@@ -24,6 +24,7 @@ export interface Regulation {
   name: string;
   validFrom?: string | null;
   validTo?: string | null;
+  speciesCount?: number;
 }
 
 export interface MetaTeam {
@@ -35,6 +36,9 @@ export interface MetaTeam {
   regulationName?: string | null;
   isPartial: boolean;
   contentHash?: string | null;
+  playerName?: string | null;
+  playerRecord?: string | null;
+  isLegal?: boolean | null;
   createdAt: string;
   slots?: MetaTeamSlot[];
 }
@@ -98,6 +102,8 @@ export interface ParseResult {
   slots: ParsedSlot[];
   isPartial: boolean;
   warnings: ParseWarning[];
+  playerName?: string;
+  playerRecord?: string;
 }
 
 export interface ImportRequest {

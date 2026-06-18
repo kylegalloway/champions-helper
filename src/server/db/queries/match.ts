@@ -1,6 +1,6 @@
 import { getAllRosterEntries, getRosterEntriesBySpecies } from './roster';
 import { getMetaTeamWithSlots } from './metaTeams';
-import { vpCost, isExactMatch } from '../../lib/vpCost';
+import { vpCost, isExactMatch } from '../../../shared/vpCost';
 import type { MatchResult, MatchSlot, RosterEntry, MetaTeamSlot } from '../../../shared/types';
 
 export async function computeMatch(teamId: number): Promise<MatchResult | null> {
