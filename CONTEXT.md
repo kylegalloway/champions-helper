@@ -3,7 +3,7 @@
 ## Core Entities
 
 **Pokemon**
-A species or variant (e.g., Garchomp, Charizard, Ninetales-Alolan). Mega forms (e.g., Charizard-Mega-Y) are not separate entities — they are the same Pokemon species that Mega Evolves in battle by holding its Mega Stone.
+A species or variant (e.g., Garchomp, Charizard, Ninetales-Alola). Species names follow Showdown convention: regional forms use `-Alola`, `-Galar`, `-Hisui`, `-Paldea` suffixes (not `-Alolan`). Mega forms (e.g., Charizard-Mega-Y) are not separate entities — they are the same Pokemon species that Mega Evolves in battle by holding its Mega Stone.
 
 **Roster Entry**
 A specific, player-owned copy of a Pokemon. A player may own multiple copies of the same species; each is distinguished by its Nickname. A Roster Entry has exactly one active Build at any time.
@@ -13,9 +13,6 @@ The in-game name given to a specific copy of a Pokemon. Nicknames (combined with
 
 **Build**
 The full configuration of a Roster Entry: four Moves, one Ability, one Nature, and a SP Spread. Changing any part of a Build costs VP.
-
-**Default Build**
-A Roster Entry whose Build has not been modified from the one it arrived with at recruitment. Changing a Default Build's Moves, Ability, or Nature costs VP from the first change; SP costs apply only for points added above the default spread.
 
 **Home Pokemon**
 A Roster Entry loaned into Pokemon Champions from the player's Pokemon Home account. Treated as owned for team-building purposes.
@@ -43,7 +40,7 @@ A battle transformation available to certain Pokemon when holding their species-
 A named ruleset (e.g., M-A, M-B) that defines which Pokemon species are legal in Ranked Battles, along with a validity date range. A team is legal in a Regulation if every Pokemon in the team appears in that Regulation's allowed roster.
 
 **Meta Team**
-A team of 6 Pokemon (each with a full Build) sourced from competitive data (Pikalytics, Pokemon-Zone, pokepast.es, or manual entry). Tagged with its source and the Regulation it was imported under. Legality in other Regulations is computed dynamically.
+A team of 6 Pokemon (each with a full Build) sourced from competitive data (Pikalytics tournament pages, pokepast.es, or manual entry). Tagged with its source and the Regulation it was imported under. Legality in other Regulations is computed dynamically. Note: Pokemon-Zone is Cloudflare-protected and not scrapeable.
 
 **Partial Team**
 A Meta Team with fewer than 6 Pokemon slots filled. Flagged as partial in the UI and in the DB.
@@ -56,6 +53,24 @@ How closely a Roster Entry matches a specific slot in a Meta Team:
 
 **Substitution** *(future)*
 A different species that fills a similar competitive role to a Meta Team slot. Not implemented in v1.
+
+## Reference Data
+
+**Species Data**
+Moves, abilities, natures, types, and species metadata are sourced from the `@pkmn/data` package (Showdown data, bundled as static JSON). This drives frontend autocomplete and validation without runtime scraping.
+
+**Pokemon Images**
+Sprites and official artwork sourced from PokeAPI (`pokeapi.co`). Cached locally on first use. Type icons bundled as static assets.
+
+**Pikalytics Integration**
+- Usage list: `GET /ai/pokedex/{formatCode}` — Markdown, top 50 Pokemon with links
+- Per-Pokemon builds: `GET /ai/pokedex/{formatCode}/{speciesName}` — Markdown with moves, abilities, items, SP spreads (already in SP values, no conversion needed)
+- Tournament teams: `GET /tournaments/rk9/{slug}` or `/tournaments/limitless/{slug}` — server-rendered HTML
+- Regulation M-B format code: `battledataregmbs3`
+- robots.txt: fully open, ClaudeBot explicitly allowed
+
+**Regulation Species Lists**
+Scraped once per regulation from `serebii.net/pokemonchampions/rankedbattle/regulation{name}.shtml`.
 
 ## Battle Format
 

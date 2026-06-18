@@ -1,0 +1,57 @@
+// Maps Showdown mega-form species name → held Mega Stone item name
+export const megaForms: Record<string, string> = {
+  'Venusaur-Mega': 'Venusaurite',
+  'Charizard-Mega-X': 'Charizardite X',
+  'Charizard-Mega-Y': 'Charizardite Y',
+  'Blastoise-Mega': 'Blastoisinite',
+  'Alakazam-Mega': 'Alakazite',
+  'Gengar-Mega': 'Gengarite',
+  'Kangaskhan-Mega': 'Kangaskhanite',
+  'Pinsir-Mega': 'Pinsirite',
+  'Gyarados-Mega': 'Gyaradosite',
+  'Aerodactyl-Mega': 'Aerodactylite',
+  'Mewtwo-Mega-X': 'Mewtwonite X',
+  'Mewtwo-Mega-Y': 'Mewtwonite Y',
+  'Ampharos-Mega': 'Ampharosite',
+  'Scizor-Mega': 'Scizorite',
+  'Heracross-Mega': 'Heracronite',
+  'Houndoom-Mega': 'Houndoominite',
+  'Tyranitar-Mega': 'Tyranitarite',
+  'Blaziken-Mega': 'Blazikenite',
+  'Gardevoir-Mega': 'Gardevoirite',
+  'Mawile-Mega': 'Mawilite',
+  'Aggron-Mega': 'Aggronite',
+  'Medicham-Mega': 'Medichamite',
+  'Manectric-Mega': 'Manectite',
+  'Banette-Mega': 'Banettite',
+  'Absol-Mega': 'Absolite',
+  'Garchomp-Mega': 'Garchompite',
+  'Lucario-Mega': 'Lucarionite',
+  'Abomasnow-Mega': 'Abomasite',
+  'Beedrill-Mega': 'Beedrillite',
+  'Pidgeot-Mega': 'Pidgeotite',
+  'Slowbro-Mega': 'Slowbronite',
+  'Steelix-Mega': 'Steelixite',
+  'Sceptile-Mega': 'Sceptilite',
+  'Swampert-Mega': 'Swampertite',
+  'Sableye-Mega': 'Sablenite',
+  'Sharpedo-Mega': 'Sharpedonite',
+  'Camerupt-Mega': 'Cameruptite',
+  'Altaria-Mega': 'Altarianite',
+  'Glalie-Mega': 'Glalitite',
+  'Salamence-Mega': 'Salamencite',
+  'Metagross-Mega': 'Metagrossite',
+  'Lopunny-Mega': 'Lopunnite',
+  'Gallade-Mega': 'Galladite',
+  'Audino-Mega': 'Audinite',
+  'Diancie-Mega': 'Diancite',
+  'Latias-Mega': 'Latiasite',
+  'Latios-Mega': 'Latiosite',
+};
+
+export function resolveMegaBase(speciesName: string): { base: string; item?: string } {
+  const stone = megaForms[speciesName];
+  if (!stone) return { base: speciesName };
+  const base = speciesName.replace(/-Mega.*$/, '');
+  return { base, item: stone };
+}

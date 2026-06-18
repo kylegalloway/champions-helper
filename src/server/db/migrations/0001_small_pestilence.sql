@@ -1,0 +1,1 @@
+ALTER TABLE `meta_team_slots` ADD `sp_spread_estimated` integer DEFAULT 0 NOT NULL;

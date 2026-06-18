@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1781756232081,
+      "tag": "0000_majestic_medusa",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1781757661875,
+      "tag": "0001_small_pestilence",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1750200000000,
+      "tag": "0002_nature_estimated",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Vite",
+      "type": "shell",
+      "command": "bun run dev",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^(.*)$",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "ready in"
+        }
+      }
+    },
+    {
+      "label": "Dev (server + client)",
+      "type": "shell",
+      "command": "bun run dev",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "bun run build",
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "Scrape",
+      "type": "shell",
+      "command": "bun run scrape",
+      "problemMatcher": []
+    },
+    {
+      "label": "Migrate Excel",
+      "type": "shell",
+      "command": "bun run migrate:excel",
+      "problemMatcher": []
+    },
+    {
+      "label": "DB Generate",
+      "type": "shell",
+      "command": "bun run db:generate",
+      "problemMatcher": []
+    },
+    {
+      "label": "DB Migrate",
+      "type": "shell",
+      "command": "bun run db:migrate",
+      "problemMatcher": []
+    }
+  ]
+}
